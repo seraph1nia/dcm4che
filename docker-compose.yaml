@@ -1,0 +1,78 @@
+x-defaults: &defaults
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+    env_file: docker-compose.env
+    restart: unless-stopped
+    extra_hosts:
+      - "${HOSTNAME}:${HOST_IP}"
+
+version: "3"
+services:
+  ldap:
+    <<: *defaults
+    container_name: ldap
+    image: dcm4che/slapd-dcm4chee:2.6.3-29.2
+    volumes:
+      - ${DATA_DIR}/ldap:/var/lib/openldap/openldap-data
+      - ${DATA_DIR}/slapd.d:/etc/openldap/slapd.d
+
+  keycloak:
+    <<: *defaults
+    container_name: keycloak
+    image: dcm4che/keycloak:21.0.0
+    ports:
+      - "8843:8843"
+    environment:
+      KC_HTTPS_PORT: 8843
+      KC_HOSTNAME: ${HOSTNAME}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_LOG: file
+      KC_SPI_LOGIN_PROTOCOL_OPENID_CONNECT_SUPPRESS_LOGOUT_CONFIRMATION_SCREEN: "true"
+      KEYCLOAK_WAIT_FOR: ldap:389
+    depends_on:
+      - ldap
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ${DATA_DIR}/keycloak:/opt/keycloak/data
+
+
+  db:
+    <<: *defaults
+    container_name: db
+    image: dcm4che/postgres-dcm4chee:14.5-29
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ${DATA_DIR}/db:/var/lib/postgresql/data
+
+
+  arc:
+    <<: *defaults
+    container_name: arc
+    image: dcm4che/dcm4chee-arc-psql:5.29.2-secure
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "9990:9990"
+      - "9993:9993"
+      - "11112:11112"
+      - "2762:2762"
+      - "2575:2575"
+      - "12575:12575"
+    environment:
+      WILDFLY_CHOWN: /opt/wildfly/standalone /storage
+      WILDFLY_WAIT_FOR: ldap:389 db:5432
+      LOG_LEVEL: DEBUG
+    depends_on:
+      - ldap
+      - keycloak
+      - db
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ${DATA_DIR}/wildfly:/opt/wildfly/standalone
+      - ${DATA_DIR}/storage:/storage
